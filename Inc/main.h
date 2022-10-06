@@ -883,6 +883,7 @@ clears the IRQ*/
 #define PAYLOAD_CRC_ERROR				(1 << PayloadCrcError)
 /** Flag which indicates that reception timeout has occurred.*/
 #define RX_TIMEOUT						(1 << RxTimeout)
+#define MAX_MSG_LENGTH					255
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

@@ -23,11 +23,11 @@
 /* USER CODE BEGIN Includes */
 #include "string.h"
 #include "stdio.h"
+#include "stdarg.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -881,16 +881,13 @@ ERROR_CODES cadDetectionAndReceive(Packet *pkt)
 		read = SPIReadSingle(REG_IRQ_FLAGS);
 
 		if ((read & CAD_DONE_AND_DETECTED) == CAD_DONE_AND_DETECTED) { // CadDone and CadDetected
-				read = 0xFF;	// clear all interrupts
-				SPIWriteSingle(REG_IRQ_FLAGS, &read);
+				clearIRQ();
 				writeMode(STDBY);
 				ret = receive(pkt);
 				break;
 		}
 		else {
-				// clear interrupt
-				read = 0xFF;
-				SPIWriteSingle(REG_IRQ_FLAGS, &read);
+				clearIRQ();
 				writeMode(CAD);	// go back to CAD mode
 				break;
 			}
@@ -1024,9 +1021,8 @@ uint8_t data_received[255] = {0};
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	char UartTxBuffer[50] = "";
 	Packet pkt_receive;
-
+	char UartTxBuffer[50] = "";
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -1061,8 +1057,6 @@ int main(void)
 
   formPacket(&pkt_receive, data_received);
   clearIRQ();
-	sprintf(UartTxBuffer, "REG_OP_MODE = 0x%02X\r\n", SPIReadSingle(REG_OP_MODE));
-	HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
 
   /* USER CODE END 2 */
 
@@ -1074,8 +1068,8 @@ int main(void)
 	  if (OK == cadDetectionAndReceive(&pkt_receive) ) {
 
 			for (int i = 0; i < pkt_receive.header.payload_length; i++){
-					sprintf(UartTxBuffer, "data[%d] = %d\r\n", i, data_received[i]);
-					HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
+					//sprintf(UartTxBuffer, "data[%d] = %d\r\n", i, data_received[i]);
+					//HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
 				}
 	  }
 

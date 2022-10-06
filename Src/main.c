@@ -1068,8 +1068,8 @@ int main(void)
 	  if (OK == cadDetectionAndReceive(&pkt_receive) ) {
 
 			for (int i = 0; i < pkt_receive.header.payload_length; i++){
-					//sprintf(UartTxBuffer, "data[%d] = %d\r\n", i, data_received[i]);
-					//HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
+					sprintf(UartTxBuffer, "data[%d] = %d\r\n", i, data_received[i]);
+					HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
 				}
 	  }
 

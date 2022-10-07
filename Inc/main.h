@@ -138,6 +138,42 @@ typedef struct Packet
 	uint8_t *payload;			/*!< Pointer to data buffer where values will be stored.*/
 	uint16_t crc;				/*!< CRC value.*/
 }Packet;
+
+/**
+ * @brief DIO0 pin modes of interrupt.
+ *
+ */
+typedef enum
+{
+	RxDone0 = 0,			/**< Set as interrupt for RxDone on DIO0. */
+	TxDone0,				/**< Set as interrupt for TxDone on DIO0. */
+	CadDone0,				/**< Set as interrupt for CadDone on DIO0.*/
+	DIO0_Error				/**< Invalid value for DIO0.*/
+}DIO0_mode;
+
+/**
+ * @brief DIO1 pin modes for interrupt.
+ *
+ */
+typedef enum
+{
+	RxTimeout1 = 0,			/**< Set as interrupt for RxDone on DIO1. */
+	FhssChangeChannel1,		/**< Set as interrupt for TxDone on DIO1. */
+	CadDetected1,			/**< Set as interrupt for CadDone on DIO1.*/
+	DIO1_Error				/**< Invalid value for DIO1.*/
+}DIO1_mode;
+
+/**
+ * @brief DIO3 pin modes for interrupt
+ *
+ */
+typedef enum
+{
+	CadDone3 = 0,   		/**< Set as interrupt for CadDone on DIO3. */
+	ValidHeader3,   		/**< Set as interrupt for ValidHeader on DIO3. */
+	PayloadCrcError3,		/**< Set as interrupt for PayloadCrcError on DIO3. */
+	DIO3_Error				/**< Invalid value for DIO3*/
+}DIO3_mode;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -397,6 +433,11 @@ ERROR_CODES receive(Packet* pkt);
  * @return ERROR CODES
  */
 ERROR_CODES cadDetectionAndReceive(Packet *pkt);
+/**
+ * @brief Sets SX1278 for CAD done and CAD detection interrupt. All other interrupts are masked.
+ *
+ */
+void setCADDetection(void);
 
 /**
  * @brief Clears all IRQ flags.
@@ -410,6 +451,9 @@ void clearIRQ(void);
 #define USART_TX_GPIO_Port GPIOA
 #define USART_RX_Pin GPIO_PIN_3
 #define USART_RX_GPIO_Port GPIOA
+#define DIO3_Pin GPIO_PIN_5
+#define DIO3_GPIO_Port GPIOC
+#define DIO3_EXTI_IRQn EXTI9_5_IRQn
 #define DIO0_Pin GPIO_PIN_6
 #define DIO0_GPIO_Port GPIOC
 #define DIO0_EXTI_IRQn EXTI9_5_IRQn
@@ -877,13 +921,32 @@ clears the IRQ*/
 #define MAX_PAYLOAD_LENGTH				255
 /** Indicates that CAD has finished and detected channel activity*/
 #define CAD_DONE_AND_DETECTED			((1 << CadDone) | (1 << CadDetected))
-/** Indicates that reception is done.*/
-#define RX_DONE							(1 << RxDone)
 /** Flag which show if there was CRC error upon reception.*/
 #define PAYLOAD_CRC_ERROR				(1 << PayloadCrcError)
 /** Flag which indicates that reception timeout has occurred.*/
 #define RX_TIMEOUT						(1 << RxTimeout)
+/** Flag which indicates that Header vas valid upon reception.*/
+#define VALID_HEADER					(1 << ValidHeader)
+/** Indicates that reception is done.*/
+#define RX_DONE							(1 << RxDone)
+/** Maximum message length available in packet.*/
 #define MAX_MSG_LENGTH					255
+/** Setting this mask will mask CAD detection interrupt*/
+#define CAD_DETECTED_MASK				(1 << CadDetectedMask)
+/** Setting this mask will mask CAD done interrupt.*/
+#define CAD_DONE_MASK					(1 << CadDoneMask)
+/** Setting this mask will mask Rx Timout interrupt.*/
+#define RX_TIMEOUT_MASK					(1 << RxTimeoutMask)
+/** Setting this mask will mask Tx Done interrupt.*/
+#define TX_DONE_MASK					(1 << TxDoneMask)
+/** Setting this mask will mask Valid header interrupt.*/
+#define VALID_HEADER_MASK				(1 <<  ValidHeaderMask)
+/** Setting this mask will mask Payload CRC error interrupt.*/
+#define PAYLOAD_CRC_ERROR_MASK			(1 << PayloadCrcErrorMask)
+/** Setting this flag will mask Rx Done interrupt.*/
+#define RX_DONE_MASK					(1 << RxDoneMask)
+/** Setting this flag will mask FHSS channel change interrupt.*/
+#define FHSS_CHANGE_CHANNEL_MASK		(1 << FhssChangeChannelMask)
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

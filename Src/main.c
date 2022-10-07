@@ -1084,10 +1084,10 @@ void setRxSingle(void)
 	// For example after Cad Detection, it is wise to use Rx Single mode
 	// for reception.
 
-	data &= ~RX_TIMEOUT_MASK & ~RX_DONE_MASK & ~PAYLOAD_CRC_ERROR_MASK; // Enable interrupts for RxTimeout and RxDone
+	data &= ~RX_TIMEOUT_MASK & ~RX_DONE_MASK & ~VALID_HEADER_MASK; // Enable interrupts for RxTimeout and RxDone
 	SPIWriteSingle(REG_IRQ_FLAGS_MASK, &data);
 
-	data = 0x0E;
+	data = 0x0D;
 	SPIWriteSingle(REG_DIO_MAPPING_1, &data); // Set DIO mapping for RxTimout, RxDone, and CRC error (maybe for Valid header instead).
 	clearIRQ(); // clear any pending interrupts
 	writeMode(RXSINGLE); // go to RxSingle mode and wait for message.
@@ -1098,6 +1098,103 @@ void clearIRQ(void)
 	uint8_t data = 0xFF;
 
 	SPIWriteSingle(REG_IRQ_FLAGS, &data);
+}
+
+ERROR_CODES receiveCadRxSingleInterrupt(Packet* pkt, uint8_t *length)
+{
+	ERROR_CODES ret = CAD_NOT_DONE_CODE;
+
+	if (DIO0_int) { 	// if there was interrupt on DIO0
+		DIO0_int = 0; // clear interrupt flag
+
+		if (CadDone0 == getDIO0Mode()) { 	// if the pin was set for CadDone
+			writeMode(STDBY);
+			clearIRQ();
+			writeMode(CAD);				// Go in CAD mode again, we expect CadDetected
+			ret = CAD_DONE_CODE;
+		}
+		else if (RxDone0 == getDIO0Mode()) {
+			if ( ((PayloadCrcError3 == getDIO3Mode()) && (DIO3_int == 0)) || ((ValidHeader3 == getDIO3Mode()) && (DIO3_int == 1)) ) {
+			// RxDone was triggered, and DIO3 was set for Payload CRC error.
+				uint8_t data;
+
+				DIO3_int = 0;
+				DIO2_int = 0;
+				writeMode(STDBY);
+				data = 0xff; // mask all interrupts while message is extracted
+				SPIWriteSingle(REG_IRQ_FLAGS_MASK, &data);
+				uint8_t read, number_of_bytes, min;
+
+				read = SPIReadSingle(REG_FIFO_RX_CURR_ADDR);
+				SPIWriteSingle(REG_FIFO_ADDR_PTR, &read);
+				number_of_bytes = getPayloadLength(); // explicit mode
+				min = (pkt->header.payload_length >= number_of_bytes) ? number_of_bytes : pkt->header.payload_length;
+				*length = min;
+				// clear buffer of size length
+				for (int i = 0; i < min; i++) {
+				  pkt->payload[i] = 0;
+				}
+
+				SPIReadBurst(REG_FIFO, pkt->payload, min);
+
+				clearIRQ();
+				setCADDetection();
+
+				ret = OK;
+			}
+			else {
+				//wrong CRC or header
+				DIO3_int = 0;
+				DIO2_int = 0;
+				if (ValidHeader3 == getDIO3Mode()) {
+					ret = INVALID_HEADER_CODE;
+				}
+				else if (PayloadCrcError3 == getDIO3Mode()) {
+					ret = PAYLOAD_CRC_ERROR_CODE;
+				}
+				clearIRQ();
+				setCADDetection();
+			}
+		}
+	}
+
+	if (DIO1_int) {					// if there was interrupt on DIO1
+		DIO1_int = 0;
+
+		if (CadDetected1 == getDIO1Mode()) {
+			writeMode(STDBY);
+			DIO0_int = 0;
+			DIO3_int = 0;
+			clearIRQ();
+			setRxSingle();
+			ret = CAD_DETECTED_CODE;
+		}
+		else if (RxTimeout1 == getDIO1Mode()) { // if there was a timeout
+			DIO0_int = 0;
+			DIO3_int = 0;
+			writeMode(STDBY);
+			clearIRQ();
+			setCADDetection();
+			ret = RX_TIMEOUT_CODE;
+		}
+	}
+
+	if (DIO3_int) {
+		if (PayloadCrcError3 == getDIO3Mode()) { // there was CRC error.
+			writeMode(STDBY);
+			clearIRQ();
+			DIO1_int = 0;
+			DIO0_int = 0;
+			DIO3_int = 0;
+			setCADDetection();
+			ret = PAYLOAD_CRC_ERROR_CODE;
+		}
+		else if (ValidHeader3 == getDIO3Mode()) {
+			// Should be handled by RxDone case
+		}
+	}
+
+	return ret;
 }
 
 void InitializeLora(SpreadingFactor sf,
@@ -1144,16 +1241,9 @@ void InitializeLora(SpreadingFactor sf,
 	//set Timeout in [s]
 	setTimeout(timeout);
 
+	// set Power
 	setPower(pwr);
 
-/*
-	read = SPIReadSingle(REG_DIO_MAPPING_1);
-	uint8_t data;
-	data = read | 0x2F; // RxDone interrupt DIO0, CAD done DIO1
-	SPIWriteSingle(REG_DIO_MAPPING_1, &data);
-	send = 0x01;
-	SPIWriteSingle(REG_DIO_MAPPING_2, &send);
-*/
 	clearIRQ();
 	writeMode(STDBY);
 
@@ -1170,7 +1260,7 @@ int main(void)
   /* USER CODE BEGIN 1 */
 	Packet pkt_receive;
 	char UartTxBuffer[50] = "";
-	uint8_t data;
+	uint8_t length;
 	uint16_t number_of_messages_received = 0;
   /* USER CODE END 1 */
 
@@ -1219,78 +1309,14 @@ int main(void)
   while (1)
   {
 
-	  if (DIO0_int) { 	// if there was interrupt on DIO0
-		  DIO0_int = 0; // clear interrupt flag
-
-		  if (CadDone0 == getDIO0Mode()) { 	// if the pin was set for CadDone
-			  writeMode(STDBY);
-			  clearIRQ();
-			  writeMode(CAD);				// Go in CAD mode again, we expect CadDetected
-		  }
-		  else if ((RxDone0 == getDIO0Mode()) && (PayloadCrcError3 == getDIO3Mode())) {
-			  // RxDone was triggered, and DIO3 was set for Payload CRC error.
-			  if (!DIO3_int) { // if there was no PayloadCRC error, packet is fine.
-				  DIO3_int = 0;
-				  DIO2_int = 0;
-				  writeMode(STDBY);
-				  data = 0xff; // mask all interrupts while message is extracted
-				  SPIWriteSingle(REG_IRQ_FLAGS_MASK, &data);
-				  uint8_t read, number_of_bytes, min;
-
-				  read = SPIReadSingle(REG_FIFO_RX_CURR_ADDR);
-				  SPIWriteSingle(REG_FIFO_ADDR_PTR, &read);
-				  number_of_bytes = getPayloadLength(); // explicit mode
-				  min = (pkt_receive.header.payload_length >= number_of_bytes) ? number_of_bytes : pkt_receive.header.payload_length;
-				  // clear buffer of size length
-				  for (int i = 0; i < min; i++) {
-					  pkt_receive.payload[i] = 0;
-				  }
-
-				  SPIReadBurst(REG_FIFO, pkt_receive.payload, min);
-
-				  sprintf(UartTxBuffer, "msg = %hu\r\n", ++number_of_messages_received);
-				  HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
-				  for (int i = 0; i < min; i++) {
-					  sprintf(UartTxBuffer, "data[%d] = %d\r\n", i, data_received[i]);
-					  HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
-				  }
-				  clearIRQ();
-				  setCADDetection();
-			  }
-		  }
-	  }
-
-	  if (DIO1_int) {					// if there was interrupt on DIO1
-		  DIO1_int = 0;
-
-		  if (CadDetected1 == getDIO1Mode()) {
-			  writeMode(STDBY);
-			  DIO0_int = 0;
-			  DIO3_int = 0;
-			  clearIRQ();
-			  setRxSingle();
-		  }
-		  else if (RxTimeout1 == getDIO1Mode()) { // if there was a timeout
-			  DIO0_int = 0;
-			  DIO3_int = 0;
-			  writeMode(STDBY);
-			  clearIRQ();
-			  setCADDetection();
-		  }
-	  }
-
-	  if (DIO3_int) {
-		  DIO3_int = 0;
-
-		  if (PayloadCrcError3 == getDIO3Mode()) { // there was CRC error.
-			  writeMode(STDBY);
-			  clearIRQ();
-			  DIO1_int = 0;
-			  DIO0_int = 0;
-			  setCADDetection();
-		  }
-
-	  }
+	 if (OK == receiveCadRxSingleInterrupt(&pkt_receive, &length)) {
+		 sprintf(UartTxBuffer, "msg_cnt = %hu\r\n", ++number_of_messages_received);
+		 HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
+		 for (int i = 0; i < length; i++) {
+			 sprintf(UartTxBuffer, "%d\r\n", data_received[i]);
+			 HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
+		 }
+	 }
 
 	  //if (OK == cadDetectionAndReceive(&pkt_receive) ) {
 

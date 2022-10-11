@@ -942,6 +942,53 @@ void formPacket(Packet* pkt, uint8_t* payload)
 	pkt->header.crc_enable = getCRCEnable();
 }
 
+void setTransmitForIRQ(void)
+{
+	uint8_t data = 0xFF; // masks all interrupts
+
+	writeMode(STDBY); // go in standby to set registers and DIO
+	// Mask all other interrupts except TxDone
+	data &= ~TX_DONE_MASK; // Enable interrupt only For TxDone
+	SPIWriteSingle(REG_IRQ_FLAGS_MASK, &data);
+
+	data = 0x7F; // DIO0 =  TxDone mode
+	SPIWriteSingle(REG_DIO_MAPPING_1, &data);
+	clearIRQ(); // clear any pending interrupts
+	// stay in Standby because message has to be preapred.
+}
+
+ERROR_CODES transmitSingleThroghIRQ(Packet *pkt, uint32_t delay)
+{
+	ERROR_CODES ret = TRANSMIT_TIMEOUT_CODE;
+	uint8_t read;
+
+	writeMode(STDBY);
+	read = SPIReadSingle(REG_FIFO_TX_BASE_ADDR);	//Gets the base address of FIFO Transmit.
+	SPIWriteSingle(REG_FIFO_ADDR_PTR, &read);		//Writes that address for start of FIFO pointer
+	SPIWriteBurst(REG_FIFO, pkt->payload, pkt->header.payload_length);
+	writeMode(TX);
+
+	while(1) { // we must wait for TxDone or timeout to occur.
+		if (DIO0_int) { //if TxDone
+			DIO1_int = 0; // Clear flag
+			clearIRQ(); // clear pending interrupts.
+			writeMode(STDBY);
+			ret = OK;
+			break;
+		}
+		else if (--delay == 0) {
+			// timeout occured
+			writeMode(STDBY);
+			ret = TRANSMIT_TIMEOUT_CODE;
+			clearIRQ();
+			break;
+		}
+		HAL_Delay(1); // Instead of HAL_Delay, timer to be initialized?
+	}
+
+	return ret;
+}
+
 ERROR_CODES transmit(const Packet* pkt, uint16_t timeout)
 {
 
@@ -970,7 +1017,8 @@ ERROR_CODES transmit(const Packet* pkt, uint16_t timeout)
 			return OK;
 		}
 		else if (--timeout == 0) {
-			return TRASNMIT_TIMEOUT_CODE;
+			return TRANSMIT_TIMEOUT_CODE;
+			clearIRQ();
 		}
 		HAL_Delay(1);
 	}
@@ -1257,10 +1305,11 @@ uint8_t data_received[255] = {0};
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	Packet pkt_transmit;
+	Packet pkt_transmit, pkt_receive;
 	char UartTxBuffer[50] = "";
 	char data[10] = "Bitch";
-	uint16_t msg_cnt = 0;
+	uint16_t number_of_messages_received = 0, msg_cnt = 0;
+	uint8_t length;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -1298,6 +1347,7 @@ int main(void)
 
   formPacket(&pkt_transmit, (uint8_t*)data);
   //setCADDetection();
+  setTransmitForIRQ();
   HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
   clearIRQ();
@@ -1317,9 +1367,10 @@ int main(void)
 			 HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
 		 }
 	 }
-	 */
-	  status =  transmit(&pkt_transmit, 500);
-	  if (TRASNMIT_TIMEOUT_CODE == status) {
+*/
+
+	  status =  transmitSingleThroghIRQ(&pkt_transmit, 500);
+	  if (TRANSMIT_TIMEOUT_CODE == status) {
 		  HAL_UART_Transmit(&huart2, (uint8_t*)"TRASNMIT_TIMEOUT\r\n", strlen("TRASNMIT_TIMEOUT\r\n"), 500);
 	  }
 	  else if (OK == status) {
@@ -1327,6 +1378,7 @@ int main(void)
 		  HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
 	  }
 	  HAL_Delay(1000);
+
 	  //if (OK == cadDetectionAndReceive(&pkt_receive) ) {
 
 			//for (int i = 0; i < pkt_receive.header.payload_length; i++){

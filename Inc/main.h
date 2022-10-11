@@ -39,7 +39,7 @@ extern "C" {
 typedef enum
 {
 	OK,
-	TRASNMIT_TIMEOUT_CODE,
+	TRANSMIT_TIMEOUT_CODE,
 	RECEPTION_TIMEOUT_CODE,
 	PAYLOAD_CRC_ERROR_CODE,
 	CAD_NOT_DONE_CODE,
@@ -449,6 +449,20 @@ void setCADDetection(void);
  *
  */
 void clearIRQ(void);
+
+/**
+ * @brief Sets SX1278 DIO pins and interrupt masks for transmission.
+ */
+void setTransmitForIRQ(void);
+
+/**
+ * @brief Try to send packet by handling TxDone interrupt on DIO0.\n
+ * setTransmitForIRQ must be called before call of this function.
+ * @param pkt Packet to be sent.
+ * @param delay Delay in milliseconds.
+ * @return OK if transmission was successful.
+ */
+ERROR_CODES transmitSingleThroghIRQ(Packet *pkt, uint32_t delay);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

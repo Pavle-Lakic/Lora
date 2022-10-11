@@ -23,7 +23,6 @@
 /* USER CODE BEGIN Includes */
 #include "string.h"
 #include "stdio.h"
-#include "stdarg.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -1258,10 +1257,10 @@ uint8_t data_received[255] = {0};
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	Packet pkt_receive;
+	Packet pkt_transmit;
 	char UartTxBuffer[50] = "";
-	uint8_t length;
-	uint16_t number_of_messages_received = 0;
+	char data[10] = "Bitch";
+	uint16_t msg_cnt = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -1288,27 +1287,28 @@ int main(void)
   ResetLora();
   HAL_Delay(100);
 
-  InitializeLora(SF_7, 433000000, 200, BW_125, CR_4_5, 0, 65535, 50, 20);
+  // do not put big preamble for transmitter, receiver can have it on max val, if preamble of
+  // transmitter is not known. Also set bigger timeout for receiver if distance is long.
+  // or signal strength is low.
+  InitializeLora(SF_7, 433000000, 200, BW_125, CR_4_5, 0, 12, 0.1046, 20);
   HAL_Delay(100);
 
   setPayloadLength(10);
   setCRCEnable(1);
 
-  formPacket(&pkt_receive, data_received);
-  setCADDetection();
+  formPacket(&pkt_transmit, (uint8_t*)data);
+  //setCADDetection();
   HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
-  DIO0_int = 0;
-  DIO1_int = 0;
-  DIO2_int = 0;
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
   clearIRQ();
+  ERROR_CODES status;
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
+/*
 	 if (OK == receiveCadRxSingleInterrupt(&pkt_receive, &length)) {
 		 sprintf(UartTxBuffer, "msg_cnt = %hu\r\n", ++number_of_messages_received);
 		 HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
@@ -1317,7 +1317,16 @@ int main(void)
 			 HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
 		 }
 	 }
-
+	 */
+	  status =  transmit(&pkt_transmit, 500);
+	  if (TRASNMIT_TIMEOUT_CODE == status) {
+		  HAL_UART_Transmit(&huart2, (uint8_t*)"TRASNMIT_TIMEOUT\r\n", strlen("TRASNMIT_TIMEOUT\r\n"), 500);
+	  }
+	  else if (OK == status) {
+		  sprintf(UartTxBuffer, "msg_cnt = %hu\r\n", ++msg_cnt);
+		  HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
+	  }
+	  HAL_Delay(1000);
 	  //if (OK == cadDetectionAndReceive(&pkt_receive) ) {
 
 			//for (int i = 0; i < pkt_receive.header.payload_length; i++){

@@ -1244,6 +1244,11 @@ ERROR_CODES receiveCadRxSingleInterrupt(Packet* pkt, uint8_t *length)
 	return ret;
 }
 
+void setSyncWord(uint8_t sync)
+{
+	SPIWriteSingle(REG_SYNC_WORD, &sync);
+}
+
 void InitializeLora(SpreadingFactor sf,
 					uint32_t freq,
 					uint8_t cp,

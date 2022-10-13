@@ -463,6 +463,13 @@ void setTransmitForIRQ(void);
  * @return OK if transmission was successful.
  */
 ERROR_CODES transmitSingleThroghIRQ(Packet *pkt, uint32_t delay);
+
+/**
+ * @brief Sets sync word for LoRa. Value 0x34 is reserved for LoRaWAN (public).\n
+ * Does not seem so reliable, messages can still be received sometimes when sync word\n
+ * is different in transmitter and receiver. To be investigated/tested in future.
+ */
+void setSyncWord(uint8_t sync);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

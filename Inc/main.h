@@ -973,6 +973,8 @@ clears the IRQ*/
 #define RX_DONE_MASK					(1 << RxDoneMask)
 /** Setting this flag will mask FHSS channel change interrupt.*/
 #define FHSS_CHANGE_CHANNEL_MASK		(1 << FhssChangeChannelMask)
+/** Maximum number of bytes which can be received or transfered through UART DMA.*/
+#define MAX_UART_SIZE					64
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

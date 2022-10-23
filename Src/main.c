@@ -43,17 +43,27 @@ const uint32_t FREQ_MULTIPLIER = 32000000; // clock frequency
 SPI_HandleTypeDef hspi1;
 
 UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_usart2_rx;
+DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
 volatile uint8_t DIO0_int = 0;
 volatile uint8_t DIO1_int = 0;
 volatile uint8_t DIO2_int = 0;
 volatile uint8_t DIO3_int = 0;
+volatile uint8_t message_received = 0;
+
+static char UartTxBuffer[MAX_UART_SIZE] = "";
+static char UartRxBuffer[MAX_UART_SIZE] = "";
+static char DmaRxBuffer[MAX_UART_SIZE] = "";
+static char DmaTxBuffer[MAX_UART_SIZE] = "";
+static uint16_t oldPos = 0, newPos = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_SPI1_Init(void);
 /* USER CODE BEGIN PFP */
@@ -1311,7 +1321,6 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
 	Packet pkt_transmit, pkt_receive;
-	char UartTxBuffer[50] = "";
 	char data[10] = "Bitch";
 	uint16_t number_of_messages_received = 0, msg_cnt = 0;
 	uint8_t length;
@@ -1335,6 +1344,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
@@ -1353,6 +1363,9 @@ int main(void)
   formPacket(&pkt_transmit, (uint8_t*)data);
   //setCADDetection();
   setTransmitForIRQ();
+  HAL_UARTEx_ReceiveToIdle_DMA(&huart2, (uint8_t*)DmaRxBuffer, MAX_UART_SIZE);
+  __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
+  __HAL_DMA_DISABLE_IT(&hdma_usart2_tx, DMA_IT_HT);
   HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
   clearIRQ();
@@ -1361,6 +1374,7 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
   while (1)
   {
 /*
@@ -1384,13 +1398,13 @@ int main(void)
 	  }
 	  HAL_Delay(1000);
 
+
 	  //if (OK == cadDetectionAndReceive(&pkt_receive) ) {
 
 			//for (int i = 0; i < pkt_receive.header.payload_length; i++){
 
 				//}
 	 // }
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -1508,6 +1522,25 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel6_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel6_IRQn);
+  /* DMA1_Channel7_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel7_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel7_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -1568,6 +1601,51 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
 	if (GPIO_Pin == DIO3_Pin) {
 		DIO3_int = 1;
+	}
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+	 __HAL_DMA_DISABLE_IT(&hdma_usart2_tx, DMA_IT_HT);
+	 memset(data_received, 0, sizeof(data_received));
+}
+
+/**
+  * @brief  Reception Event Callback (Rx event notification called after use of advanced reception service).
+  * @param  huart UART handle
+  * @param  Size  Number of data available in application reception buffer (indicates a position in
+  *               reception buffer until which, data are available)
+  * @retval None
+  */
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+{
+	if (huart->Instance == USART2) {
+
+		if (Size < MAX_UART_SIZE) {
+			message_received = 1;
+		}
+		/*
+		oldPos = Size;
+		if (Size <= MAX_UART_SIZE) {
+			HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaRxBuffer, Size); // echo
+
+			oldPos = newPos;
+			if ( (oldPos + Size) > MAX_UART_SIZE) {
+				uint16_t datatocopy = MAX_UART_SIZE - oldPos;
+				memcpy(UartRxBuffer + oldPos, DmaRxBuffer, datatocopy);
+
+				oldPos = 0;
+				memcpy(UartRxBuffer, DmaRxBuffer + datatocopy, (Size - datatocopy));
+				newPos = Size - datatocopy;
+			}
+			else {
+				memcpy(UartRxBuffer + oldPos, DmaRxBuffer, Size);
+				newPos = oldPos + Size;
+			}
+		}*/
+		HAL_UARTEx_ReceiveToIdle_DMA(&huart2, (uint8_t*)DmaRxBuffer, MAX_UART_SIZE);
+		__HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
+
 	}
 }
 /* USER CODE END 4 */

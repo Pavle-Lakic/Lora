@@ -294,13 +294,13 @@ uint8_t getCurrentProtection(void);
  * @brief Returns current RSSI value.
  * @return Current RSSI value.
  */
-uint8_t getRSSI(void);
+int getRSSI(void);
 
 /**
  * @brief Gets RSSI value of last packet
  * @return RSSI value of last packet.
  */
-uint8_t getRSSILastPacket(void);
+int getRSSILastPacket(void);
 
 /**
  * @brief Sets signal bandwidth, available values defined in enum Bandwidth.

@@ -31,6 +31,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define MAX_NUMBER_OF_COMMANDS		64
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -54,10 +55,7 @@ volatile uint8_t DIO3_int = 0;
 volatile uint8_t message_received = 0;
 
 static char UartTxBuffer[MAX_UART_SIZE] = "";
-static char UartRxBuffer[MAX_UART_SIZE] = "";
 static char DmaRxBuffer[MAX_UART_SIZE] = "";
-static char DmaTxBuffer[MAX_UART_SIZE] = "";
-static uint16_t oldPos = 0, newPos = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -624,10 +622,10 @@ uint8_t getCurrentProtection(void)
 	return ret;
 }
 
-uint8_t getRSSILastPacket(void)
+int getRSSILastPacket(void)
 {
-	uint8_t low_frequency;
-	uint8_t ret, read;
+	uint8_t low_frequency, read;
+	int ret;
 
 	low_frequency = SPIReadSingle(REG_OP_MODE);
 
@@ -646,10 +644,10 @@ uint8_t getRSSILastPacket(void)
 	return ret;
 }
 
-uint8_t getRSSI(void)
+int getRSSI(void)
 {
-	uint8_t low_frequency;
-	uint8_t ret, read;
+	uint8_t low_frequency, read;
+	int ret;
 
 	low_frequency = SPIReadSingle(REG_OP_MODE);
 
@@ -993,7 +991,6 @@ ERROR_CODES transmitSingleThroghIRQ(Packet *pkt, uint32_t delay)
 			clearIRQ();
 			break;
 		}
-		HAL_Delay(1); // Instead of HAL_Delay, timer to be initialized?
 	}
 
 	return ret;
@@ -1354,7 +1351,7 @@ int main(void)
   // do not put big preamble for transmitter, receiver can have it on max val, if preamble of
   // transmitter is not known. Also set bigger timeout for receiver if distance is long.
   // or signal strength is low.
-  InitializeLora(SF_7, 433000000, 200, BW_125, CR_4_5, 0, 12, 0.1046, 20);
+  InitializeLora(SF_10, 433000000, 240, BW_125, CR_4_8, 0, 12, 0.1046, 20);
   HAL_Delay(100);
 
   setPayloadLength(10);
@@ -1362,12 +1359,12 @@ int main(void)
 
   formPacket(&pkt_transmit, (uint8_t*)data);
   //setCADDetection();
-  setTransmitForIRQ();
+  //setTransmitForIRQ();
   HAL_UARTEx_ReceiveToIdle_DMA(&huart2, (uint8_t*)DmaRxBuffer, MAX_UART_SIZE);
   __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
   __HAL_DMA_DISABLE_IT(&hdma_usart2_tx, DMA_IT_HT);
   HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
-  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+  //HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
   clearIRQ();
   ERROR_CODES status;
   /* USER CODE END 2 */
@@ -1379,25 +1376,19 @@ int main(void)
   {
 /*
 	 if (OK == receiveCadRxSingleInterrupt(&pkt_receive, &length)) {
-		 sprintf(UartTxBuffer, "msg_cnt = %hu\r\n", ++number_of_messages_received);
-		 HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
-		 for (int i = 0; i < length; i++) {
-			 sprintf(UartTxBuffer, "%d\r\n", data_received[i]);
-			 HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
-		 }
+		 HAL_UART_Transmit_DMA(&huart2, data_received, sizeof(data_received));
 	 }
 */
 
-	  status =  transmitSingleThroghIRQ(&pkt_transmit, 500);
+	  status =  transmit(&pkt_transmit, 500);
 	  if (TRANSMIT_TIMEOUT_CODE == status) {
-		  HAL_UART_Transmit(&huart2, (uint8_t*)"TRASNMIT_TIMEOUT\r\n", strlen("TRASNMIT_TIMEOUT\r\n"), 500);
+		  HAL_UART_Transmit_DMA(&huart2, (uint8_t*)"TRANSMIT_TIMEOUT\r\n",  strlen("TRANSMIT_TIMEOUT\r\n"));
 	  }
 	  else if (OK == status) {
 		  sprintf(UartTxBuffer, "msg_cnt = %hu\r\n", ++msg_cnt);
-		  HAL_UART_Transmit(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer), 500);
+		  HAL_UART_Transmit_DMA(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer));
+		  HAL_Delay(1000);
 	  }
-	  HAL_Delay(1000);
-
 
 	  //if (OK == cadDetectionAndReceive(&pkt_receive) ) {
 

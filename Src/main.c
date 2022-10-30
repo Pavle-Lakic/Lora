@@ -991,6 +991,9 @@ ERROR_CODES transmitSingleThroghIRQ(Packet *pkt, uint32_t delay)
 			clearIRQ();
 			break;
 		}
+		else {
+			HAL_Delay(1);
+		}
 	}
 
 	return ret;
@@ -1359,12 +1362,12 @@ int main(void)
 
   formPacket(&pkt_transmit, (uint8_t*)data);
   //setCADDetection();
-  //setTransmitForIRQ();
+  setTransmitForIRQ();
   HAL_UARTEx_ReceiveToIdle_DMA(&huart2, (uint8_t*)DmaRxBuffer, MAX_UART_SIZE);
   __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
   __HAL_DMA_DISABLE_IT(&hdma_usart2_tx, DMA_IT_HT);
   HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
-  //HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
   clearIRQ();
   ERROR_CODES status;
   /* USER CODE END 2 */
@@ -1380,7 +1383,7 @@ int main(void)
 	 }
 */
 
-	  status =  transmit(&pkt_transmit, 500);
+	  status =  transmitSingleThroghIRQ(&pkt_transmit, 500);
 	  if (TRANSMIT_TIMEOUT_CODE == status) {
 		  HAL_UART_Transmit_DMA(&huart2, (uint8_t*)"TRANSMIT_TIMEOUT\r\n",  strlen("TRANSMIT_TIMEOUT\r\n"));
 	  }

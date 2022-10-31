@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include "string.h"
 #include "stdio.h"
+#include "stdlib.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -1194,31 +1195,40 @@ ERROR_CODES receiveCadRxSingleInterrupt(Packet* pkt, uint8_t *length)
 		else if (RxDone0 == getDIO0Mode()) {
 			if ( ((PayloadCrcError3 == getDIO3Mode()) && (DIO3_int == 0)) || ((ValidHeader3 == getDIO3Mode()) && (DIO3_int == 1)) ) {
 			// RxDone was triggered, and DIO3 was set for Payload CRC error.
-				uint8_t data;
+				uint8_t read, number_of_bytes, min, data;
+				char address[3];
 
 				DIO3_int = 0;
 				DIO2_int = 0;
 				writeMode(STDBY);
 				data = 0xff; // mask all interrupts while message is extracted
 				SPIWriteSingle(REG_IRQ_FLAGS_MASK, &data);
-				uint8_t read, number_of_bytes, min;
 
 				read = SPIReadSingle(REG_FIFO_RX_CURR_ADDR);
 				SPIWriteSingle(REG_FIFO_ADDR_PTR, &read);
 				number_of_bytes = getPayloadLength(); // explicit mode
 				min = (pkt->header.payload_length >= number_of_bytes) ? number_of_bytes : pkt->header.payload_length;
 				*length = min;
-				// clear buffer of size length
-				for (int i = 0; i < min; i++) {
-				  pkt->payload[i] = 0;
+
+				SPIReadBurst(REG_FIFO, (uint8_t*)address, sizeof(address)); // first 3 bytes are always address.
+
+				if ( (atoi(address) == MY_ADDRESS) || (atoi(address) == BROADCAST_ADDRESS) ) {
+					// clear buffer of size length
+					for (int i = 0; i < min; i++) {
+					  pkt->payload[i] = 0;
+					}
+
+					SPIReadBurst(REG_FIFO, pkt->payload, min - sizeof(address));
+					clearIRQ();
+					setCADDetection();
+
+					ret = OK;
 				}
-
-				SPIReadBurst(REG_FIFO, pkt->payload, min);
-
-				clearIRQ();
-				setCADDetection();
-
-				ret = OK;
+				else {
+					clearIRQ();
+					setCADDetection();
+					ret = WRONG_ADDRESS_CODE;
+				}
 			}
 			else {
 				//wrong CRC or header
@@ -1404,7 +1414,7 @@ int main(void)
 	 }
 */
 
-	  status =  transmitSingleThroghIRQ(&pkt_transmit, 500, 0x00);
+	  status =  transmitSingleThroghIRQ(&pkt_transmit, 500, BROADCAST_ADDRESS);
 	  if (TRANSMIT_TIMEOUT_CODE == status) {
 		  HAL_UART_Transmit_DMA(&huart2, (uint8_t*)"TRANSMIT_TIMEOUT\r\n",  strlen("TRANSMIT_TIMEOUT\r\n"));
 	  }

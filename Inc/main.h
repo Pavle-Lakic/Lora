@@ -49,6 +49,7 @@ typedef enum
 	CAD_DONE_CODE,
 	VALID_HEADER_CODE,
 	INVALID_HEADER_CODE,
+	WRONG_ADDRESS_CODE
 }ERROR_CODES;
 
 /**
@@ -982,6 +983,8 @@ clears the IRQ*/
 #define MAX_PACKET_SIZE					252
 /** Each node will have its own address and on reception this address will be checked.*/
 #define MY_ADDRESS						0x00
+/** All nodes will receive message with broadcast address.*/
+#define BROADCAST_ADDRESS				255
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

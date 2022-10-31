@@ -420,8 +420,10 @@ void formPacket(Packet* pkt, uint8_t* payload);
 /**
  * @brief Transmits the packet with assigned parameters
  * @param pkt Packet to be sent.
+ * @param address Destination address.
+ * @return Error Code.
  */
-ERROR_CODES transmit(const Packet* pkt, uint16_t timeout);
+ERROR_CODES transmit(const Packet* pkt, uint16_t timeout, const uint8_t address);
 
 /**
  * @brief Receives LoRa packet of assigned length.
@@ -460,9 +462,10 @@ void setTransmitForIRQ(void);
  * setTransmitForIRQ must be called before call of this function.
  * @param pkt Packet to be sent.
  * @param delay Delay in milliseconds.
+ * @param address Destination address.
  * @return OK if transmission was successful.
  */
-ERROR_CODES transmitSingleThroghIRQ(Packet *pkt, uint32_t delay);
+ERROR_CODES transmitSingleThroghIRQ(Packet *pkt, uint32_t delay, const uint8_t address);
 
 /**
  * @brief Sets sync word for LoRa. Value 0x34 is reserved for LoRaWAN (public).\n
@@ -975,6 +978,10 @@ clears the IRQ*/
 #define FHSS_CHANGE_CHANNEL_MASK		(1 << FhssChangeChannelMask)
 /** Maximum number of bytes which can be received or transfered through UART DMA.*/
 #define MAX_UART_SIZE					64
+/** Maximum size of a packet, 3 bytes are reserved for address.*/
+#define MAX_PACKET_SIZE					252
+/** Each node will have its own address and on reception this address will be checked.*/
+#define MY_ADDRESS						0x00
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

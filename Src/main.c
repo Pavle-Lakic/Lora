@@ -321,6 +321,22 @@ static DIO3_mode getDIO3Mode(void)
 	return ret;
 }
 
+static void splitAddress(char *addr_string, const uint8_t address)
+{
+	if (address < 10) {
+		addr_string[0] = '0';
+		addr_string[1] = '0';
+		sprintf(&addr_string[2], "%d", address);
+	}
+	else if (address < 100) {
+		addr_string[0] = '0';
+		sprintf(&addr_string[1], "%d", address);
+	}
+	else {
+		sprintf(addr_string, "%d", address);
+	}
+}
+
 void ResetLora(void)
 {
 	HAL_GPIO_WritePin(RESET_N_GPIO_Port, RESET_N_Pin, GPIO_PIN_RESET);
@@ -965,14 +981,17 @@ void setTransmitForIRQ(void)
 	// stay in Standby because message has to be preapred.
 }
 
-ERROR_CODES transmitSingleThroghIRQ(Packet *pkt, uint32_t delay)
+ERROR_CODES transmitSingleThroghIRQ(Packet *pkt, uint32_t delay, const uint8_t address)
 {
 	ERROR_CODES ret = TRANSMIT_TIMEOUT_CODE;
 	uint8_t read;
+	char address_string[3];
 
 	writeMode(STDBY);
 	read = SPIReadSingle(REG_FIFO_TX_BASE_ADDR);	//Gets the base address of FIFO Transmit.
 	SPIWriteSingle(REG_FIFO_ADDR_PTR, &read);		//Writes that address for start of FIFO pointer
+	splitAddress(address_string, address);
+	SPIWriteBurst(REG_FIFO, (uint8_t*)address_string, sizeof(address_string));
 	SPIWriteBurst(REG_FIFO, pkt->payload, pkt->header.payload_length);
 	writeMode(TX);
 
@@ -999,21 +1018,23 @@ ERROR_CODES transmitSingleThroghIRQ(Packet *pkt, uint32_t delay)
 	return ret;
 }
 
-ERROR_CODES transmit(const Packet* pkt, uint16_t timeout)
+ERROR_CODES transmit(const Packet* pkt, uint16_t timeout, const uint8_t address)
 {
 
 	Mode mode;
 	uint8_t read;
+	char addr_string[3];
 
 	//clear TxDone interrupt if it is pending for some reason.
 	read = SPIReadSingle(REG_IRQ_FLAGS);
 	read |= (1 << TxDone);
 	SPIWriteSingle(REG_IRQ_FLAGS, &read);
-
 	mode = getMode();								//Gets current mode in which SX1278 is in.
 	writeMode(STDBY);								//Must go in Standby mode in order to set FIFO register.
 	read = SPIReadSingle(REG_FIFO_TX_BASE_ADDR);	//Gets the base address of FIFO Transmit.
 	SPIWriteSingle(REG_FIFO_ADDR_PTR, &read);		//Writes that address for start of FIFO pointer
+	splitAddress(addr_string, address);
+	SPIWriteBurst(REG_FIFO, (uint8_t*)addr_string, sizeof(addr_string));
 	SPIWriteBurst(REG_FIFO, pkt->payload, pkt->header.payload_length);
 	writeMode(TX);									//Go in transmit mode
 
@@ -1383,7 +1404,7 @@ int main(void)
 	 }
 */
 
-	  status =  transmitSingleThroghIRQ(&pkt_transmit, 500);
+	  status =  transmitSingleThroghIRQ(&pkt_transmit, 500, 0x00);
 	  if (TRANSMIT_TIMEOUT_CODE == status) {
 		  HAL_UART_Transmit_DMA(&huart2, (uint8_t*)"TRANSMIT_TIMEOUT\r\n",  strlen("TRANSMIT_TIMEOUT\r\n"));
 	  }

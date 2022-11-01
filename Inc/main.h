@@ -141,6 +141,7 @@ typedef struct Packet
 {
 	uint16_t preamble_length; 	/*!< Preamble length, it is set by function setPreambleLength.*/
 	Header header;				/*!< Header only available in explicit mode.*/
+	uint8_t local_address;		/*!< Each node will have its own address.*/
 	uint8_t *payload;			/*!< Pointer to data buffer where values will be stored.*/
 	uint16_t crc;				/*!< CRC value.*/
 }Packet;
@@ -415,8 +416,9 @@ uint8_t getCRCEnable(void);
  * @brief Creates LoRa packet with specified parameters.
  * @param pkt Packet to be formed, structure fields are defined in struct Packet.
  * @param payload pointer to buffer with data to be sent or received.
+ * @param length Payload length, important if transmission.
  */
-void formPacket(Packet* pkt, uint8_t* payload);
+void formPacket(Packet* pkt, uint8_t* payload , const uint8_t length);
 
 /**
  * @brief Transmits the packet with assigned parameters
@@ -979,10 +981,10 @@ clears the IRQ*/
 #define FHSS_CHANGE_CHANNEL_MASK		(1 << FhssChangeChannelMask)
 /** Maximum number of bytes which can be received or transfered through UART DMA.*/
 #define MAX_UART_SIZE					64
-/** Maximum size of a packet, 3 bytes are reserved for address.*/
-#define MAX_PACKET_SIZE					252
+/** Maximum size of a packet, 6 bytes are reserved for addresses.*/
+#define MAX_PACKET_SIZE					249
 /** Each node will have its own address and on reception this address will be checked.*/
-#define MY_ADDRESS						0x00
+#define MY_ADDRESS						111
 /** All nodes will receive message with broadcast address.*/
 #define BROADCAST_ADDRESS				255
 /* USER CODE END Private defines */

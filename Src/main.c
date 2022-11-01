@@ -958,11 +958,21 @@ void setPayloadLength(uint8_t length)
 	SPIWriteSingle(REG_PAYLOAD_LENGTH, &length);
 }
 
-void formPacket(Packet* pkt, uint8_t* payload)
+void formPacket(Packet* pkt, uint8_t* payload , const uint8_t length)
 {
+	if (length > 0) {
+		uint8_t min;
+		min = (getPayloadLength() >= length ? length : getPayloadLength());
+		pkt->header.payload_length = min;
+		setPayloadLength(min);
+	}
+	else {
+		pkt->header.payload_length = getPayloadLength();
+	}
+
 	pkt->preamble_length = getPreambleLength();
 	pkt->payload = payload;
-	pkt->header.payload_length = getPayloadLength();
+	pkt->local_address = MY_ADDRESS;
 	pkt->header.cr = getCodingRate();
 	pkt->header.crc_enable = getCRCEnable();
 }
@@ -991,9 +1001,11 @@ ERROR_CODES transmitSingleThroghIRQ(Packet *pkt, uint32_t delay, const uint8_t a
 	writeMode(STDBY);
 	read = SPIReadSingle(REG_FIFO_TX_BASE_ADDR);	//Gets the base address of FIFO Transmit.
 	SPIWriteSingle(REG_FIFO_ADDR_PTR, &read);		//Writes that address for start of FIFO pointer
+	splitAddress(address_string, pkt->local_address);
+	SPIWriteBurst(REG_FIFO, (uint8_t*)address_string, sizeof(address_string)); 	// set source address
 	splitAddress(address_string, address);
-	SPIWriteBurst(REG_FIFO, (uint8_t*)address_string, sizeof(address_string));
-	SPIWriteBurst(REG_FIFO, pkt->payload, pkt->header.payload_length);
+	SPIWriteBurst(REG_FIFO, (uint8_t*)address_string, sizeof(address_string)); 	// set destination address
+	SPIWriteBurst(REG_FIFO, pkt->payload, pkt->header.payload_length);			// set payload
 	writeMode(TX);
 
 	while(1) { // we must wait for TxDone or timeout to occur.
@@ -1179,7 +1191,7 @@ void clearIRQ(void)
 	SPIWriteSingle(REG_IRQ_FLAGS, &data);
 }
 
-ERROR_CODES receiveCadRxSingleInterrupt(Packet* pkt, uint8_t *length)
+ERROR_CODES receiveCadRxSingleInterrupt(Packet* pkt, uint8_t *length, uint8_t *sender_address)
 {
 	ERROR_CODES ret = CAD_NOT_DONE_CODE;
 
@@ -1196,7 +1208,7 @@ ERROR_CODES receiveCadRxSingleInterrupt(Packet* pkt, uint8_t *length)
 			if ( ((PayloadCrcError3 == getDIO3Mode()) && (DIO3_int == 0)) || ((ValidHeader3 == getDIO3Mode()) && (DIO3_int == 1)) ) {
 			// RxDone was triggered, and DIO3 was set for Payload CRC error.
 				uint8_t read, number_of_bytes, min, data;
-				char address[3];
+				char src_address[3], dst_address[3];
 
 				DIO3_int = 0;
 				DIO2_int = 0;
@@ -1210,15 +1222,17 @@ ERROR_CODES receiveCadRxSingleInterrupt(Packet* pkt, uint8_t *length)
 				min = (pkt->header.payload_length >= number_of_bytes) ? number_of_bytes : pkt->header.payload_length;
 				*length = min;
 
-				SPIReadBurst(REG_FIFO, (uint8_t*)address, sizeof(address)); // first 3 bytes are always address.
+				SPIReadBurst(REG_FIFO, (uint8_t*)src_address, 3); // first 3 bytes are always source address.
+				SPIReadBurst(REG_FIFO, (uint8_t*)dst_address, 3); // 2nd 3 bytes are always destination address
 
-				if ( (atoi(address) == MY_ADDRESS) || (atoi(address) == BROADCAST_ADDRESS) ) {
+				if ( (atoi(dst_address) == MY_ADDRESS) || (atoi(dst_address) == BROADCAST_ADDRESS) ) {
 					// clear buffer of size length
 					for (int i = 0; i < min; i++) {
 					  pkt->payload[i] = 0;
 					}
 
-					SPIReadBurst(REG_FIFO, pkt->payload, min - sizeof(address));
+					*sender_address = atoi(src_address);
+					SPIReadBurst(REG_FIFO, pkt->payload, min);
 					clearIRQ();
 					setCADDetection();
 
@@ -1337,6 +1351,12 @@ void InitializeLora(SpreadingFactor sf,
 	// set Power
 	setPower(pwr);
 
+	// by default always set to maximum available data size
+	// because receiver does not know length of packet
+	// sender will correct by its actual length in
+	// formPacket function.
+	setPayloadLength(MAX_PACKET_SIZE);
+
 	clearIRQ();
 	writeMode(STDBY);
 
@@ -1352,7 +1372,7 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
 	Packet pkt_transmit, pkt_receive;
-	char data[10] = "Bitch";
+	char data[] = "I said Bitch breee ASAAAAAAAAAAA";
 	uint16_t number_of_messages_received = 0, msg_cnt = 0;
 	uint8_t length;
   /* USER CODE END 1 */
@@ -1388,10 +1408,9 @@ int main(void)
   InitializeLora(SF_10, 433000000, 240, BW_125, CR_4_8, 0, 12, 0.1046, 20);
   HAL_Delay(100);
 
-  setPayloadLength(10);
   setCRCEnable(1);
-
-  formPacket(&pkt_transmit, (uint8_t*)data);
+  // packet size always 6 bytes for addresses + size of data to be sent.
+  formPacket(&pkt_transmit, (uint8_t*)data, sizeof(data) + 6);
   //setCADDetection();
   setTransmitForIRQ();
   HAL_UARTEx_ReceiveToIdle_DMA(&huart2, (uint8_t*)DmaRxBuffer, MAX_UART_SIZE);

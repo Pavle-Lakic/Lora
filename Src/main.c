@@ -55,7 +55,7 @@ volatile uint8_t DIO2_int = 0;
 volatile uint8_t DIO3_int = 0;
 volatile uint8_t message_received = 0;
 
-static char UartTxBuffer[MAX_UART_SIZE] = "";
+static char DmaTxBuffer[MAX_UART_SIZE] = "";
 static char DmaRxBuffer[MAX_UART_SIZE] = "";
 /* USER CODE END PV */
 
@@ -996,16 +996,16 @@ ERROR_CODES transmitSingleThroghIRQ(Packet *pkt, uint32_t delay, const uint8_t a
 {
 	ERROR_CODES ret = TRANSMIT_TIMEOUT_CODE;
 	uint8_t read;
-	char address_string[3];
+	char src_address[3], dst_address[3];
 
 	writeMode(STDBY);
 	read = SPIReadSingle(REG_FIFO_TX_BASE_ADDR);	//Gets the base address of FIFO Transmit.
 	SPIWriteSingle(REG_FIFO_ADDR_PTR, &read);		//Writes that address for start of FIFO pointer
-	splitAddress(address_string, pkt->local_address);
-	SPIWriteBurst(REG_FIFO, (uint8_t*)address_string, sizeof(address_string)); 	// set source address
-	splitAddress(address_string, address);
-	SPIWriteBurst(REG_FIFO, (uint8_t*)address_string, sizeof(address_string)); 	// set destination address
-	SPIWriteBurst(REG_FIFO, pkt->payload, pkt->header.payload_length);			// set payload
+	splitAddress(src_address, pkt->local_address);
+	SPIWriteBurst(REG_FIFO, (uint8_t*)src_address, sizeof(src_address)); 	// set source address
+	splitAddress(dst_address, address);
+	SPIWriteBurst(REG_FIFO, (uint8_t*)dst_address, sizeof(dst_address)); 	// set destination address
+	SPIWriteBurst(REG_FIFO, pkt->payload, pkt->header.payload_length);
 	writeMode(TX);
 
 	while(1) { // we must wait for TxDone or timeout to occur.
@@ -1218,7 +1218,7 @@ ERROR_CODES receiveCadRxSingleInterrupt(Packet* pkt, uint8_t *length, uint8_t *s
 
 				read = SPIReadSingle(REG_FIFO_RX_CURR_ADDR);
 				SPIWriteSingle(REG_FIFO_ADDR_PTR, &read);
-				number_of_bytes = getPayloadLength(); // explicit mode
+				number_of_bytes = SPIReadSingle(REG_RX_NB_BYTES); // explicit mode
 				min = (pkt->header.payload_length >= number_of_bytes) ? number_of_bytes : pkt->header.payload_length;
 				*length = min;
 
@@ -1361,7 +1361,7 @@ void InitializeLora(SpreadingFactor sf,
 	writeMode(STDBY);
 
 }
-uint8_t data_received[255] = {0};
+char data_received[255] = {0};
 /* USER CODE END 0 */
 
 /**
@@ -1371,10 +1371,8 @@ uint8_t data_received[255] = {0};
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	Packet pkt_transmit, pkt_receive;
-	char data[] = "I said Bitch breee ASAAAAAAAAAAA";
-	uint16_t number_of_messages_received = 0, msg_cnt = 0;
-	uint8_t length;
+	Packet pkt_receive;
+	uint8_t length, sender_address;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -1405,14 +1403,14 @@ int main(void)
   // do not put big preamble for transmitter, receiver can have it on max val, if preamble of
   // transmitter is not known. Also set bigger timeout for receiver if distance is long.
   // or signal strength is low.
-  InitializeLora(SF_10, 433000000, 240, BW_125, CR_4_8, 0, 12, 0.1046, 20);
+  InitializeLora(SF_10, 433000000, 240, BW_125, CR_4_8, 0, 65000, 0.5, 20);
   HAL_Delay(100);
 
   setCRCEnable(1);
   // packet size always 6 bytes for addresses + size of data to be sent.
-  formPacket(&pkt_transmit, (uint8_t*)data, sizeof(data) + 6);
-  //setCADDetection();
-  setTransmitForIRQ();
+  formPacket(&pkt_receive, (uint8_t*)data_received, 0);
+  setCADDetection();
+  //setTransmitForIRQ();
   HAL_UARTEx_ReceiveToIdle_DMA(&huart2, (uint8_t*)DmaRxBuffer, MAX_UART_SIZE);
   __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
   __HAL_DMA_DISABLE_IT(&hdma_usart2_tx, DMA_IT_HT);
@@ -1427,12 +1425,14 @@ int main(void)
 
   while (1)
   {
+	  status = receiveCadRxSingleInterrupt(&pkt_receive, &length, &sender_address);
+		 if (OK == status) {
+			 status = RX_TIMEOUT_CODE;
+			 sprintf(DmaTxBuffer, "data=%s; RSSI = %d; sender address = %d; length = %d\r\n", data_received, getRSSILastPacket(), sender_address, length);
+			 HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
+			 //__HAL_DMA_DISABLE_IT(&hdma_usart2_tx, DMA_IT_HT);
+		 }
 /*
-	 if (OK == receiveCadRxSingleInterrupt(&pkt_receive, &length)) {
-		 HAL_UART_Transmit_DMA(&huart2, data_received, sizeof(data_received));
-	 }
-*/
-
 	  status =  transmitSingleThroghIRQ(&pkt_transmit, 500, BROADCAST_ADDRESS);
 	  if (TRANSMIT_TIMEOUT_CODE == status) {
 		  HAL_UART_Transmit_DMA(&huart2, (uint8_t*)"TRANSMIT_TIMEOUT\r\n",  strlen("TRANSMIT_TIMEOUT\r\n"));
@@ -1442,7 +1442,7 @@ int main(void)
 		  HAL_UART_Transmit_DMA(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer));
 		  HAL_Delay(1000);
 	  }
-
+*/
 	  //if (OK == cadDetectionAndReceive(&pkt_receive) ) {
 
 			//for (int i = 0; i < pkt_receive.header.payload_length; i++){
@@ -1651,7 +1651,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
 	 __HAL_DMA_DISABLE_IT(&hdma_usart2_tx, DMA_IT_HT);
-	 memset(data_received, 0, sizeof(data_received));
 }
 
 /**

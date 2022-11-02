@@ -1224,18 +1224,18 @@ ERROR_CODES receiveCadRxSingleInterrupt(Packet* pkt, uint8_t *length, uint8_t *s
 
 				SPIReadBurst(REG_FIFO, (uint8_t*)src_address, 3); // first 3 bytes are always source address.
 				SPIReadBurst(REG_FIFO, (uint8_t*)dst_address, 3); // 2nd 3 bytes are always destination address
+				data = (uint8_t)atoi(dst_address);
 
-				if ( (atoi(dst_address) == MY_ADDRESS) || (atoi(dst_address) == BROADCAST_ADDRESS) ) {
+				if ( (MY_ADDRESS == data) || (BROADCAST_ADDRESS == data) ) {
 					// clear buffer of size length
 					for (int i = 0; i < min; i++) {
 					  pkt->payload[i] = 0;
 					}
 
-					*sender_address = atoi(src_address);
-					SPIReadBurst(REG_FIFO, pkt->payload, min);
+					*sender_address = atoi(src_address); // get address of who send us the message
+					SPIReadBurst(REG_FIFO, pkt->payload, min); // read the rest of data
 					clearIRQ();
 					setCADDetection();
-
 					ret = OK;
 				}
 				else {

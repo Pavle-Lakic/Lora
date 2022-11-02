@@ -1432,15 +1432,19 @@ int main(void)
 			 HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
 			 //__HAL_DMA_DISABLE_IT(&hdma_usart2_tx, DMA_IT_HT);
 		 }
+
 /*
 	  status =  transmitSingleThroghIRQ(&pkt_transmit, 500, BROADCAST_ADDRESS);
 	  if (TRANSMIT_TIMEOUT_CODE == status) {
-		  HAL_UART_Transmit_DMA(&huart2, (uint8_t*)"TRANSMIT_TIMEOUT\r\n",  strlen("TRANSMIT_TIMEOUT\r\n"));
+		  sprintf(DmaTxBuffer, "TIMEOUT, REG_IRQ_FLAGS = 0x%02X\r\n", SPIReadSingle(REG_IRQ_FLAGS));
+		  HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
 	  }
 	  else if (OK == status) {
-		  sprintf(UartTxBuffer, "msg_cnt = %hu\r\n", ++msg_cnt);
-		  HAL_UART_Transmit_DMA(&huart2, (uint8_t*)UartTxBuffer, strlen(UartTxBuffer));
-		  HAL_Delay(1000);
+		  sprintf(data, "data = %d", ++msg_cnt);
+		  formPacket(&pkt_transmit, (uint8_t*)data, sizeof(data) + 6);
+		  sprintf(DmaTxBuffer, "%s\r\n", pkt_transmit.payload);
+		  HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
+		  HAL_Delay(2000);
 	  }
 */
 	  //if (OK == cadDetectionAndReceive(&pkt_receive) ) {

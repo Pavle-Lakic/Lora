@@ -51,9 +51,9 @@ DMA_HandleTypeDef hdma_usart2_tx;
 /* USER CODE BEGIN PV */
 volatile uint8_t DIO0_int = 0;
 volatile uint8_t DIO1_int = 0;
-volatile uint8_t DIO2_int = 0;
 volatile uint8_t DIO3_int = 0;
 volatile uint8_t message_received = 0;
+ERROR_CODES global_status = RECEPTION_TIMEOUT_CODE;
 
 static char DmaTxBuffer[MAX_UART_SIZE] = "";
 static char DmaRxBuffer[MAX_UART_SIZE] = "";
@@ -958,23 +958,23 @@ void setPayloadLength(uint8_t length)
 	SPIWriteSingle(REG_PAYLOAD_LENGTH, &length);
 }
 
-void formPacket(Packet* pkt, uint8_t* payload , const uint8_t length)
+void formPacket(Packet* pkt, uint8_t* payload , const uint8_t length, const uint8_t dst_address)
 {
 	if (length > 0) {
 		uint8_t min;
 		min = (getPayloadLength() >= length ? length : getPayloadLength());
-		pkt->header.payload_length = min;
+		pkt->length = min;
 		setPayloadLength(min);
+		pkt->dst_address = dst_address;
 	}
 	else {
-		pkt->header.payload_length = getPayloadLength();
+		pkt->length = getPayloadLength();
+		pkt->dst_address = 0; // does not matter much for receiver.
 	}
 
-	pkt->preamble_length = getPreambleLength();
 	pkt->payload = payload;
-	pkt->local_address = MY_ADDRESS;
-	pkt->header.cr = getCodingRate();
-	pkt->header.crc_enable = getCRCEnable();
+	pkt->src_address = MY_ADDRESS;
+
 }
 
 void setTransmitForIRQ(void)
@@ -1001,11 +1001,11 @@ ERROR_CODES transmitSingleThroghIRQ(Packet *pkt, uint32_t delay, const uint8_t a
 	writeMode(STDBY);
 	read = SPIReadSingle(REG_FIFO_TX_BASE_ADDR);	//Gets the base address of FIFO Transmit.
 	SPIWriteSingle(REG_FIFO_ADDR_PTR, &read);		//Writes that address for start of FIFO pointer
-	splitAddress(src_address, pkt->local_address);
+	splitAddress(src_address, pkt->src_address);
 	SPIWriteBurst(REG_FIFO, (uint8_t*)src_address, sizeof(src_address)); 	// set source address
-	splitAddress(dst_address, address);
+	splitAddress(dst_address, pkt->dst_address);
 	SPIWriteBurst(REG_FIFO, (uint8_t*)dst_address, sizeof(dst_address)); 	// set destination address
-	SPIWriteBurst(REG_FIFO, pkt->payload, pkt->header.payload_length);
+	SPIWriteBurst(REG_FIFO, pkt->payload, pkt->length);
 	writeMode(TX);
 
 	while(1) { // we must wait for TxDone or timeout to occur.
@@ -1031,12 +1031,12 @@ ERROR_CODES transmitSingleThroghIRQ(Packet *pkt, uint32_t delay, const uint8_t a
 	return ret;
 }
 
-ERROR_CODES transmit(const Packet* pkt, uint16_t timeout, const uint8_t address)
+ERROR_CODES transmit(const Packet* pkt, uint16_t timeout)
 {
 
 	Mode mode;
 	uint8_t read;
-	char addr_string[3];
+	char src_address[3], dst_address[3];
 
 	//clear TxDone interrupt if it is pending for some reason.
 	read = SPIReadSingle(REG_IRQ_FLAGS);
@@ -1046,9 +1046,11 @@ ERROR_CODES transmit(const Packet* pkt, uint16_t timeout, const uint8_t address)
 	writeMode(STDBY);								//Must go in Standby mode in order to set FIFO register.
 	read = SPIReadSingle(REG_FIFO_TX_BASE_ADDR);	//Gets the base address of FIFO Transmit.
 	SPIWriteSingle(REG_FIFO_ADDR_PTR, &read);		//Writes that address for start of FIFO pointer
-	splitAddress(addr_string, address);
-	SPIWriteBurst(REG_FIFO, (uint8_t*)addr_string, sizeof(addr_string));
-	SPIWriteBurst(REG_FIFO, pkt->payload, pkt->header.payload_length);
+	splitAddress(src_address, pkt->src_address);
+	SPIWriteBurst(REG_FIFO, (uint8_t*)src_address, sizeof(src_address)); 	// set source address
+	splitAddress(dst_address, pkt->dst_address);
+	SPIWriteBurst(REG_FIFO, (uint8_t*)dst_address, sizeof(dst_address)); 	// set destination address
+	SPIWriteBurst(REG_FIFO, pkt->payload, pkt->length);
 	writeMode(TX);									//Go in transmit mode
 
 	while(1) {
@@ -1058,6 +1060,8 @@ ERROR_CODES transmit(const Packet* pkt, uint16_t timeout, const uint8_t address)
 			read = (1 << TxDone);
 			SPIWriteSingle(REG_IRQ_FLAGS, &read); 	//Transmition complete. Clear TxDone interrupt.
 			writeMode(mode);						//Go to previous mode.
+			sprintf(DmaTxBuffer, "Sending: %s\r\n", pkt->payload);
+			HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
 			return OK;
 		}
 		else if (--timeout == 0) {
@@ -1128,7 +1132,7 @@ ERROR_CODES receive(Packet* pkt)
 				read = SPIReadSingle(REG_FIFO_RX_CURR_ADDR);
 				SPIWriteSingle(REG_FIFO_ADDR_PTR, &read);
 				number_of_bytes = getPayloadLength(); // explicit mode
-				min = (pkt->header.payload_length >= number_of_bytes) ? number_of_bytes : pkt->header.payload_length;
+				min = (pkt->length >= number_of_bytes) ? number_of_bytes : pkt->length;
 				// clear buffer of size length
 				for (int i = 0; i < min; i++) {
 					pkt->payload[i] = 0;
@@ -1175,10 +1179,12 @@ void setRxSingle(void)
 	// For example after Cad Detection, it is wise to use Rx Single mode
 	// for reception.
 
-	data &= ~RX_TIMEOUT_MASK & ~RX_DONE_MASK & ~VALID_HEADER_MASK; // Enable interrupts for RxTimeout and RxDone
+	data &= ~RX_TIMEOUT_MASK & ~RX_DONE_MASK & ~VALID_HEADER_MASK; // Enable interrupts for RxTimeout and RxDone and valid header
+	//data &= ~RX_TIMEOUT_MASK & ~RX_DONE_MASK & ~PAYLOAD_CRC_ERROR_MASK; // Enable interrupts for RxTimeout and RxDone and payloadCRCError.
 	SPIWriteSingle(REG_IRQ_FLAGS_MASK, &data);
 
-	data = 0x0D;
+	data = 0x0D; // for valid header
+	//data = 0x0E; // for payload crc error.
 	SPIWriteSingle(REG_DIO_MAPPING_1, &data); // Set DIO mapping for RxTimout, RxDone, and CRC error (maybe for Valid header instead).
 	clearIRQ(); // clear any pending interrupts
 	writeMode(RXSINGLE); // go to RxSingle mode and wait for message.
@@ -1189,114 +1195,6 @@ void clearIRQ(void)
 	uint8_t data = 0xFF;
 
 	SPIWriteSingle(REG_IRQ_FLAGS, &data);
-}
-
-ERROR_CODES receiveCadRxSingleInterrupt(Packet* pkt, uint8_t *length, uint8_t *sender_address)
-{
-	ERROR_CODES ret = CAD_NOT_DONE_CODE;
-
-	if (DIO0_int) { 	// if there was interrupt on DIO0
-		DIO0_int = 0; // clear interrupt flag
-
-		if (CadDone0 == getDIO0Mode()) { 	// if the pin was set for CadDone
-			writeMode(STDBY);
-			clearIRQ();
-			writeMode(CAD);				// Go in CAD mode again, we expect CadDetected
-			ret = CAD_DONE_CODE;
-		}
-		else if (RxDone0 == getDIO0Mode()) {
-			if ( ((PayloadCrcError3 == getDIO3Mode()) && (DIO3_int == 0)) || ((ValidHeader3 == getDIO3Mode()) && (DIO3_int == 1)) ) {
-			// RxDone was triggered, and DIO3 was set for Payload CRC error.
-				uint8_t read, number_of_bytes, min, data;
-				char src_address[3], dst_address[3];
-
-				DIO3_int = 0;
-				DIO2_int = 0;
-				writeMode(STDBY);
-				data = 0xff; // mask all interrupts while message is extracted
-				SPIWriteSingle(REG_IRQ_FLAGS_MASK, &data);
-
-				read = SPIReadSingle(REG_FIFO_RX_CURR_ADDR);
-				SPIWriteSingle(REG_FIFO_ADDR_PTR, &read);
-				number_of_bytes = SPIReadSingle(REG_RX_NB_BYTES); // explicit mode
-				min = (pkt->header.payload_length >= number_of_bytes) ? number_of_bytes : pkt->header.payload_length;
-				*length = min;
-
-				SPIReadBurst(REG_FIFO, (uint8_t*)src_address, 3); // first 3 bytes are always source address.
-				SPIReadBurst(REG_FIFO, (uint8_t*)dst_address, 3); // 2nd 3 bytes are always destination address
-				data = (uint8_t)atoi(dst_address);
-
-				if ( (MY_ADDRESS == data) || (BROADCAST_ADDRESS == data) ) {
-					// clear buffer of size length
-					for (int i = 0; i < min; i++) {
-					  pkt->payload[i] = 0;
-					}
-
-					*sender_address = atoi(src_address); // get address of who send us the message
-					SPIReadBurst(REG_FIFO, pkt->payload, min); // read the rest of data
-					clearIRQ();
-					setCADDetection();
-					ret = OK;
-				}
-				else {
-					clearIRQ();
-					setCADDetection();
-					ret = WRONG_ADDRESS_CODE;
-				}
-			}
-			else {
-				//wrong CRC or header
-				DIO3_int = 0;
-				DIO2_int = 0;
-				if (ValidHeader3 == getDIO3Mode()) {
-					ret = INVALID_HEADER_CODE;
-				}
-				else if (PayloadCrcError3 == getDIO3Mode()) {
-					ret = PAYLOAD_CRC_ERROR_CODE;
-				}
-				clearIRQ();
-				setCADDetection();
-			}
-		}
-	}
-
-	if (DIO1_int) {					// if there was interrupt on DIO1
-		DIO1_int = 0;
-
-		if (CadDetected1 == getDIO1Mode()) {
-			writeMode(STDBY);
-			DIO0_int = 0;
-			DIO3_int = 0;
-			clearIRQ();
-			setRxSingle();
-			ret = CAD_DETECTED_CODE;
-		}
-		else if (RxTimeout1 == getDIO1Mode()) { // if there was a timeout
-			DIO0_int = 0;
-			DIO3_int = 0;
-			writeMode(STDBY);
-			clearIRQ();
-			setCADDetection();
-			ret = RX_TIMEOUT_CODE;
-		}
-	}
-
-	if (DIO3_int) {
-		if (PayloadCrcError3 == getDIO3Mode()) { // there was CRC error.
-			writeMode(STDBY);
-			clearIRQ();
-			DIO1_int = 0;
-			DIO0_int = 0;
-			DIO3_int = 0;
-			setCADDetection();
-			ret = PAYLOAD_CRC_ERROR_CODE;
-		}
-		else if (ValidHeader3 == getDIO3Mode()) {
-			// Should be handled by RxDone case
-		}
-	}
-
-	return ret;
 }
 
 void setSyncWord(uint8_t sync)
@@ -1362,6 +1260,7 @@ void InitializeLora(SpreadingFactor sf,
 
 }
 char data_received[255] = {0};
+Packet pkt_receive;
 /* USER CODE END 0 */
 
 /**
@@ -1371,8 +1270,7 @@ char data_received[255] = {0};
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	Packet pkt_receive;
-	uint8_t length, sender_address;
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -1403,12 +1301,12 @@ int main(void)
   // do not put big preamble for transmitter, receiver can have it on max val, if preamble of
   // transmitter is not known. Also set bigger timeout for receiver if distance is long.
   // or signal strength is low.
-  InitializeLora(SF_10, 433000000, 240, BW_125, CR_4_8, 0, 65000, 0.5, 20);
+  InitializeLora(SF_7, 433000000, 240, BW_125, CR_4_5, 0, 65000,  0.1046, 20);
   HAL_Delay(100);
 
   setCRCEnable(1);
   // packet size always 6 bytes for addresses + size of data to be sent.
-  formPacket(&pkt_receive, (uint8_t*)data_received, 0);
+  formPacket(&pkt_receive, (uint8_t*)data_received, 0, 0);
   setCADDetection();
   //setTransmitForIRQ();
   HAL_UARTEx_ReceiveToIdle_DMA(&huart2, (uint8_t*)DmaRxBuffer, MAX_UART_SIZE);
@@ -1417,7 +1315,6 @@ int main(void)
   HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
   clearIRQ();
-  ERROR_CODES status;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -1425,34 +1322,7 @@ int main(void)
 
   while (1)
   {
-	  status = receiveCadRxSingleInterrupt(&pkt_receive, &length, &sender_address);
-		 if (OK == status) {
-			 status = RX_TIMEOUT_CODE;
-			 sprintf(DmaTxBuffer, "data=%s; RSSI = %d; sender address = %d; length = %d\r\n", data_received, getRSSILastPacket(), sender_address, length);
-			 HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
-			 //__HAL_DMA_DISABLE_IT(&hdma_usart2_tx, DMA_IT_HT);
-		 }
-
-/*
-	  status =  transmitSingleThroghIRQ(&pkt_transmit, 500, BROADCAST_ADDRESS);
-	  if (TRANSMIT_TIMEOUT_CODE == status) {
-		  sprintf(DmaTxBuffer, "TIMEOUT, REG_IRQ_FLAGS = 0x%02X\r\n", SPIReadSingle(REG_IRQ_FLAGS));
-		  HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
-	  }
-	  else if (OK == status) {
-		  sprintf(data, "data = %d", ++msg_cnt);
-		  formPacket(&pkt_transmit, (uint8_t*)data, sizeof(data) + 6);
-		  sprintf(DmaTxBuffer, "%s\r\n", pkt_transmit.payload);
-		  HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
-		  HAL_Delay(2000);
-	  }
-*/
-	  //if (OK == cadDetectionAndReceive(&pkt_receive) ) {
-
-			//for (int i = 0; i < pkt_receive.header.payload_length; i++){
-
-				//}
-	 // }
+	  HAL_Delay(500);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -1639,17 +1509,88 @@ static void MX_GPIO_Init(void)
   */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+	ERROR_CODES ret;
+
 	if (GPIO_Pin == DIO0_Pin) {
-		DIO0_int = 1;
+		//DIO0_int = 1;
+
+		//DIO0_int = 0;
+		if (CadDone0 == getDIO0Mode()) { 	// if the pin was set for CadDone
+			clearIRQ();
+			writeMode(CAD);
+			//setCADDetection();				// Go in CAD mode again, we expect CadDetected
+			ret = CAD_DONE_CODE;
+		}
+		else if (RxDone0 == getDIO0Mode()) {
+
+			uint8_t read, number_of_bytes, min, data;
+			char src_address[3], dst_address[3];
+
+			writeMode(STDBY);
+			data = 0xff; // mask all interrupts while message is extracted
+			SPIWriteSingle(REG_IRQ_FLAGS_MASK, &data);
+
+			read = SPIReadSingle(REG_FIFO_RX_CURR_ADDR);
+			SPIWriteSingle(REG_FIFO_ADDR_PTR, &read);
+			number_of_bytes = SPIReadSingle(REG_RX_NB_BYTES); // explicit mode
+			min = (pkt_receive.length = number_of_bytes) ? number_of_bytes : pkt_receive.length;
+			pkt_receive.length = min;
+
+			SPIReadBurst(REG_FIFO, (uint8_t*)src_address, 3); // first 3 bytes are always source address.
+			SPIReadBurst(REG_FIFO, (uint8_t*)dst_address, 3); // 2nd 3 bytes are always destination address
+			pkt_receive.src_address = atoi(src_address);
+			pkt_receive.dst_address = atoi(dst_address);
+
+			if ( (MY_ADDRESS == pkt_receive.dst_address) || (BROADCAST_ADDRESS == pkt_receive.dst_address) ) {
+				// clear buffer of size length
+				for (int i = 0; i < min; i++) {
+				 data_received[i] = 0;
+				}
+
+				//*sender_address = atoi(src_address); // get address of who send us the message
+				SPIReadBurst(REG_FIFO, (uint8_t*)data_received, min); // read the rest of data
+				clearIRQ();
+				setCADDetection();
+				ret = OK;
+				 sprintf(DmaTxBuffer, "%s\r\n", data_received);
+				 HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
+			}
+			else {
+				clearIRQ();
+				setCADDetection();
+				ret = WRONG_ADDRESS_CODE;
+			}
+		}
 	}
 
 	if (GPIO_Pin == DIO1_Pin) {
-		DIO1_int = 1;
+		//++int1;
+		//DIO1_int = 0;
+		if (CadDetected1 == getDIO1Mode()) {
+			writeMode(STDBY);
+			//clearIRQ();
+			setRxSingle();
+			//sprintf(DmaTxBuffer, "CadDetected = %d int1 = %d\r\n", ++dio1, int1);
+			//HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
+			ret = CAD_DETECTED_CODE;
+		}
+		else if(RxTimeout1 == getDIO1Mode()) {
+			//sprintf(DmaTxBuffer, "RxTimeout = %d int1 = %d\r\n", ++dio1, int1);
+			//HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
+			setCADDetection();
+		}
 	}
 
 	if (GPIO_Pin == DIO3_Pin) {
-		DIO3_int = 1;
+		if (PayloadCrcError3 == getDIO3Mode()) { // there was CRC error.
+			setCADDetection();
+			ret = PAYLOAD_CRC_ERROR_CODE;
+		}
+		else if (ValidHeader3 == getDIO3Mode()) {
+			//valid header interrupt
+		}
 	}
+	global_status = ret;
 }
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)

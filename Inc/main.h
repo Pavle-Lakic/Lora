@@ -124,26 +124,14 @@ typedef enum
 }CodingRate;
 
 /**
- * This struct will help user configure parameters such as payload length, coding rate, and crc enable flags.\n
- * Note that header is only available in explicit mode. Will help in parsing of packet on receiver side.
- */
-typedef struct Header
-{
-	uint8_t payload_length; /*!< Payload length. Value is defined in REG_PAYLOAD_LENGTH*/
-	CodingRate cr;			/*!< Coding Rate. Value is defined in as bits [3-1] in REG_MODEM_CONFIG1. Can be set by setCodingRate function.*/
-	uint8_t crc_enable;		/*!< Flag in header which indicates that CRC has to be checked.*/
-}Header;
-
-/**
- * LoRa packet. Consists of preamble, header, payload and optional CRC. Will help in parsing and analyzing of received data.
+ * LoRa packet. Used for forming packet on transmit and receive.
  */
 typedef struct Packet
 {
-	uint16_t preamble_length; 	/*!< Preamble length, it is set by function setPreambleLength.*/
-	Header header;				/*!< Header only available in explicit mode.*/
-	uint8_t local_address;		/*!< Each node will have its own address.*/
+	uint8_t src_address;		/*!< Source address.*/
+	uint8_t dst_address;		/*!< Destination address.*/
 	uint8_t *payload;			/*!< Pointer to data buffer where values will be stored.*/
-	uint16_t crc;				/*!< CRC value.*/
+	uint8_t length;				/*!< Length of data to be transmitted or received.*/
 }Packet;
 
 /**
@@ -417,16 +405,17 @@ uint8_t getCRCEnable(void);
  * @param pkt Packet to be formed, structure fields are defined in struct Packet.
  * @param payload pointer to buffer with data to be sent or received.
  * @param length Payload length, important if transmission.
+ * @param dst_address Destination address where packet should be sent.
  */
-void formPacket(Packet* pkt, uint8_t* payload , const uint8_t length);
+void formPacket(Packet* pkt, uint8_t* payload , const uint8_t length, const uint8_t dst_address);
 
 /**
  * @brief Transmits the packet with assigned parameters
  * @param pkt Packet to be sent.
- * @param address Destination address.
+ * @param timeout Blocking call, timeout if it blocked for timeout set.
  * @return Error Code.
  */
-ERROR_CODES transmit(const Packet* pkt, uint16_t timeout, const uint8_t address);
+ERROR_CODES transmit(const Packet* pkt, uint16_t timeout);
 
 /**
  * @brief Receives LoRa packet of assigned length.
@@ -438,9 +427,8 @@ ERROR_CODES receive(Packet* pkt);
 
 /**
  * @brief Does CAD, and if it is successfull, will proceed with reception.
- *
- * @param pkt
- * @return ERROR CODES
+ * @param pkt Packet which will store message.
+ * @return ERROR CODES.
  */
 ERROR_CODES cadDetectionAndReceive(Packet *pkt);
 /**
@@ -980,7 +968,7 @@ clears the IRQ*/
 /** Setting this flag will mask FHSS channel change interrupt.*/
 #define FHSS_CHANGE_CHANNEL_MASK		(1 << FhssChangeChannelMask)
 /** Maximum number of bytes which can be received or transfered through UART DMA.*/
-#define MAX_UART_SIZE					64
+#define MAX_UART_SIZE					512
 /** Maximum size of a packet, 6 bytes are reserved for addresses.*/
 #define MAX_PACKET_SIZE					249
 /** Each node will have its own address and on reception this address will be checked.*/

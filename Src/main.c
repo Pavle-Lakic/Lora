@@ -54,9 +54,9 @@ volatile uint8_t DIO1_int = 0;
 volatile uint8_t DIO3_int = 0;
 volatile uint8_t message_received = 0;
 ERROR_CODES global_status = RECEPTION_TIMEOUT_CODE;
-uint32_t cad_detected = 0;
-uint32_t valid_header = 0;
-uint32_t rx_done = 0;
+//uint32_t cad_detected = 0;
+//uint32_t valid_header = 0;
+//uint32_t rx_done = 0;
 
 static char DmaTxBuffer[MAX_UART_SIZE];
 static char DmaRxBuffer[MAX_UART_SIZE];;
@@ -1326,13 +1326,7 @@ int main(void)
 
   while (1)
   {
-	  if(OK == global_status) {
-			 //sprintf(DmaTxBuffer, "%s; rx_done = %lu; valid_header = %lu; cad_detected = %lu\r\n", pkt_receive.payload, rx_done, valid_header, cad_detected);
-		  	 memset(DmaTxBuffer, 0, sizeof(DmaTxBuffer));
-		  	 sprintf(DmaTxBuffer, "%s; rx_done = %lu; valid_header = %lu; cad_detected = %lu\r\n", pkt_receive.payload, rx_done, valid_header, cad_detected);
-			 HAL_UART_Transmit(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer), 500);
-	  }
-	  //HAL_Delay(500);
+	  HAL_Delay(500);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -1529,7 +1523,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		}
 		else if (RxDone0 == getDIO0Mode()) {
 
-			rx_done++;
+			//rx_done++;
 			uint8_t read, number_of_bytes, min, data;
 			char src_address[3], dst_address[3];
 
@@ -1543,34 +1537,35 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 			min = (pkt_receive.length = number_of_bytes) ? number_of_bytes : pkt_receive.length;
 			pkt_receive.length = min;
 
-			//SPIReadBurst(REG_FIFO, (uint8_t*)src_address, 3); // first 3 bytes are always source address.
-			//SPIReadBurst(REG_FIFO, (uint8_t*)dst_address, 3); // 2nd 3 bytes are always destination address
-			//pkt_receive.src_address = atoi(src_address);
-			//pkt_receive.dst_address = atoi(dst_address);
+			SPIReadBurst(REG_FIFO, (uint8_t*)src_address, 3); // first 3 bytes are always source address.
+			SPIReadBurst(REG_FIFO, (uint8_t*)dst_address, 3); // 2nd 3 bytes are always destination address
+			pkt_receive.src_address = atoi(src_address);
+			pkt_receive.dst_address = atoi(dst_address);
 
-			//if ( (MY_ADDRESS == pkt_receive.dst_address) || (BROADCAST_ADDRESS == pkt_receive.dst_address) ) {
+			if ( (MY_ADDRESS == pkt_receive.dst_address) || (BROADCAST_ADDRESS == pkt_receive.dst_address) ) {
 				// we are addressed, take the message.
 				for (int i = 0; i < min; i++) {
 					pkt_receive.payload[i] = 0;
 				}
 
 				SPIReadBurst(REG_FIFO, (uint8_t*)pkt_receive.payload, min); // read the rest of data
+			  	 sprintf(DmaTxBuffer, "%s\r\n", data_received);
+				 HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
 				clearIRQ();
 				setCADDetection(); // wait for new reception
 				ret = OK;
-			//}
-				 /*
+			}
 			else {
 				clearIRQ();
 				setCADDetection();
 				ret = WRONG_ADDRESS_CODE;
-			}*/
+			}
 		}
 	}
 
 	if (GPIO_Pin == DIO1_Pin) {
 		if (CadDetected1 == getDIO1Mode()) {
-			cad_detected++;
+			//cad_detected++;
 			clearIRQ();
 			setRxSingle();
 			ret = CAD_DETECTED_CODE;
@@ -1589,7 +1584,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		}
 		else if (ValidHeader3 == getDIO3Mode()) {
 			//valid header interrupt
-			valid_header++;
+			//valid_header++;
 		}
 	}
 	global_status = ret;

@@ -1512,13 +1512,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	ERROR_CODES ret;
 
 	if (GPIO_Pin == DIO0_Pin) {
-		//DIO0_int = 1;
-
-		//DIO0_int = 0;
 		if (CadDone0 == getDIO0Mode()) { 	// if the pin was set for CadDone
 			clearIRQ();
 			writeMode(CAD);
-			//setCADDetection();				// Go in CAD mode again, we expect CadDetected
 			ret = CAD_DONE_CODE;
 		}
 		else if (RxDone0 == getDIO0Mode()) {
@@ -1542,21 +1538,19 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 			pkt_receive.dst_address = atoi(dst_address);
 
 			if ( (MY_ADDRESS == pkt_receive.dst_address) || (BROADCAST_ADDRESS == pkt_receive.dst_address) ) {
-				// clear buffer of size length
+				// we are addressed, take the message.
 				for (int i = 0; i < min; i++) {
 					pkt_receive.payload[i] = 0;
 				}
 
-				//*sender_address = atoi(src_address); // get address of who send us the message
 				SPIReadBurst(REG_FIFO, (uint8_t*)pkt_receive.payload, min); // read the rest of data
 				clearIRQ();
-				setCADDetection();
+				setCADDetection(); // wait for new reception
 				ret = OK;
 				 sprintf(DmaTxBuffer, "%s\r\n", data_received);
 				 HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
 			}
 			else {
-				clearIRQ();
 				setCADDetection();
 				ret = WRONG_ADDRESS_CODE;
 			}
@@ -1564,19 +1558,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	}
 
 	if (GPIO_Pin == DIO1_Pin) {
-		//++int1;
-		//DIO1_int = 0;
 		if (CadDetected1 == getDIO1Mode()) {
-			writeMode(STDBY);
-			//clearIRQ();
 			setRxSingle();
-			//sprintf(DmaTxBuffer, "CadDetected = %d int1 = %d\r\n", ++dio1, int1);
-			//HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
 			ret = CAD_DETECTED_CODE;
 		}
 		else if(RxTimeout1 == getDIO1Mode()) {
-			//sprintf(DmaTxBuffer, "RxTimeout = %d int1 = %d\r\n", ++dio1, int1);
-			//HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
 			setCADDetection();
 		}
 	}

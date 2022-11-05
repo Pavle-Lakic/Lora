@@ -1544,11 +1544,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 			if ( (MY_ADDRESS == pkt_receive.dst_address) || (BROADCAST_ADDRESS == pkt_receive.dst_address) ) {
 				// clear buffer of size length
 				for (int i = 0; i < min; i++) {
-				 data_received[i] = 0;
+					pkt_receive.payload[i] = 0;
 				}
 
 				//*sender_address = atoi(src_address); // get address of who send us the message
-				SPIReadBurst(REG_FIFO, (uint8_t*)data_received, min); // read the rest of data
+				SPIReadBurst(REG_FIFO, (uint8_t*)pkt_receive.payload, min); // read the rest of data
 				clearIRQ();
 				setCADDetection();
 				ret = OK;

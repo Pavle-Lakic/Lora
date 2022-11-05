@@ -54,9 +54,12 @@ volatile uint8_t DIO1_int = 0;
 volatile uint8_t DIO3_int = 0;
 volatile uint8_t message_received = 0;
 ERROR_CODES global_status = RECEPTION_TIMEOUT_CODE;
+uint32_t cad_detected = 0;
+uint32_t valid_header = 0;
+uint32_t rx_done = 0;
 
-static char DmaTxBuffer[MAX_UART_SIZE] = "";
-static char DmaRxBuffer[MAX_UART_SIZE] = "";
+static char DmaTxBuffer[MAX_UART_SIZE];
+static char DmaRxBuffer[MAX_UART_SIZE];;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -1167,6 +1170,7 @@ void setCADDetection(void)
 	data = 0xAF; // DIO0 = Cad done = 10; DIO1 = Cad Detected = 10
 	SPIWriteSingle(REG_DIO_MAPPING_1, &data);
 	clearIRQ(); // clear any pending interrupts
+	HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
 	writeMode(CAD);	// go to CAD mode
 }
 
@@ -1301,7 +1305,7 @@ int main(void)
   // do not put big preamble for transmitter, receiver can have it on max val, if preamble of
   // transmitter is not known. Also set bigger timeout for receiver if distance is long.
   // or signal strength is low.
-  InitializeLora(SF_7, 433000000, 240, BW_125, CR_4_5, 0, 65000,  0.1046, 20);
+  InitializeLora(SF_7, 433000000, 240, BW_125, CR_4_5, 0, 65000,  10, 20);
   HAL_Delay(100);
 
   setCRCEnable(1);
@@ -1322,7 +1326,13 @@ int main(void)
 
   while (1)
   {
-	  HAL_Delay(500);
+	  if(OK == global_status) {
+			 //sprintf(DmaTxBuffer, "%s; rx_done = %lu; valid_header = %lu; cad_detected = %lu\r\n", pkt_receive.payload, rx_done, valid_header, cad_detected);
+		  	 memset(DmaTxBuffer, 0, sizeof(DmaTxBuffer));
+		  	 sprintf(DmaTxBuffer, "%s; rx_done = %lu; valid_header = %lu; cad_detected = %lu\r\n", pkt_receive.payload, rx_done, valid_header, cad_detected);
+			 HAL_UART_Transmit(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer), 500);
+	  }
+	  //HAL_Delay(500);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -1514,11 +1524,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	if (GPIO_Pin == DIO0_Pin) {
 		if (CadDone0 == getDIO0Mode()) { 	// if the pin was set for CadDone
 			clearIRQ();
-			writeMode(CAD);
+			setCADDetection();
 			ret = CAD_DONE_CODE;
 		}
 		else if (RxDone0 == getDIO0Mode()) {
 
+			rx_done++;
 			uint8_t read, number_of_bytes, min, data;
 			char src_address[3], dst_address[3];
 
@@ -1532,12 +1543,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 			min = (pkt_receive.length = number_of_bytes) ? number_of_bytes : pkt_receive.length;
 			pkt_receive.length = min;
 
-			SPIReadBurst(REG_FIFO, (uint8_t*)src_address, 3); // first 3 bytes are always source address.
-			SPIReadBurst(REG_FIFO, (uint8_t*)dst_address, 3); // 2nd 3 bytes are always destination address
-			pkt_receive.src_address = atoi(src_address);
-			pkt_receive.dst_address = atoi(dst_address);
+			//SPIReadBurst(REG_FIFO, (uint8_t*)src_address, 3); // first 3 bytes are always source address.
+			//SPIReadBurst(REG_FIFO, (uint8_t*)dst_address, 3); // 2nd 3 bytes are always destination address
+			//pkt_receive.src_address = atoi(src_address);
+			//pkt_receive.dst_address = atoi(dst_address);
 
-			if ( (MY_ADDRESS == pkt_receive.dst_address) || (BROADCAST_ADDRESS == pkt_receive.dst_address) ) {
+			//if ( (MY_ADDRESS == pkt_receive.dst_address) || (BROADCAST_ADDRESS == pkt_receive.dst_address) ) {
 				// we are addressed, take the message.
 				for (int i = 0; i < min; i++) {
 					pkt_receive.payload[i] = 0;
@@ -1547,33 +1558,38 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 				clearIRQ();
 				setCADDetection(); // wait for new reception
 				ret = OK;
-				 sprintf(DmaTxBuffer, "%s\r\n", data_received);
-				 HAL_UART_Transmit_DMA(&huart2, (uint8_t*)DmaTxBuffer, strlen(DmaTxBuffer));
-			}
+			//}
+				 /*
 			else {
+				clearIRQ();
 				setCADDetection();
 				ret = WRONG_ADDRESS_CODE;
-			}
+			}*/
 		}
 	}
 
 	if (GPIO_Pin == DIO1_Pin) {
 		if (CadDetected1 == getDIO1Mode()) {
+			cad_detected++;
+			clearIRQ();
 			setRxSingle();
 			ret = CAD_DETECTED_CODE;
 		}
 		else if(RxTimeout1 == getDIO1Mode()) {
+			clearIRQ();
 			setCADDetection();
 		}
 	}
 
 	if (GPIO_Pin == DIO3_Pin) {
 		if (PayloadCrcError3 == getDIO3Mode()) { // there was CRC error.
+			clearIRQ();
 			setCADDetection();
 			ret = PAYLOAD_CRC_ERROR_CODE;
 		}
 		else if (ValidHeader3 == getDIO3Mode()) {
 			//valid header interrupt
+			valid_header++;
 		}
 	}
 	global_status = ret;
